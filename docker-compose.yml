@@ -1,0 +1,264 @@
+services:
+  # ============================================
+  # Ethereum Devnet (Geth in dev mode)
+  # ============================================
+  geth:
+    image: ethereum/client-go:v1.13.14
+    container_name: geth-devnet
+    command:
+      - --dev
+      - --dev.period=2
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.api=eth,net,web3,debug,txpool
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.api=eth,net,web3
+      - --ws.origins=*
+      - --metrics
+      - --metrics.addr=0.0.0.0
+      - --metrics.port=6060
+      - --verbosity=3
+    ports:
+      - "8545:8545"   # HTTP RPC
+      - "8546:8546"   # WebSocket
+      - "6060:6060"   # Metrics
+    volumes:
+      - geth-data:/root/.ethereum
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8545"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - blockchain-net
+
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-indexer
+    environment:
+      POSTGRES_USER: indexer
+      POSTGRES_PASSWORD: indexer_pass
+      POSTGRES_DB: blockchain_data
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indexer -d blockchain_data"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - blockchain-net
+
+  # ============================================
+  # Contract Deployer (one-shot)
+  # ============================================
+  deployer:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.deployer
+    container_name: contract-deployer
+    environment:
+      RPC_URL: http://geth:8545
+      CONTRACT_OUTPUT: /app/output/contract_info.json
+    volumes:
+      - contract-info:/app/output
+      - ./contracts:/app/contracts:ro
+    depends_on:
+      geth:
+        condition: service_healthy
+    networks:
+      - blockchain-net
+
+  # ============================================
+  # Purchase Simulator
+  # ============================================
+  simulator:
+    build:
+      context: ./services/simulator
+      dockerfile: Dockerfile
+    container_name: purchase-simulator
+    environment:
+      RPC_URL: http://geth:8545
+      CONTRACT_INFO_PATH: /app/contract_info/contract_info.json
+      PURCHASE_INTERVAL_MIN: 2
+      PURCHASE_INTERVAL_MAX: 5
+      NUM_WALLETS: 3
+    volumes:
+      - contract-info:/app/contract_info:ro
+    depends_on:
+      deployer:
+        condition: service_completed_successfully
+      geth:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - blockchain-net
+
+  # ============================================
+  # Indexer Service
+  # ============================================
+  indexer:
+    build:
+      context: ./services/indexer
+      dockerfile: Dockerfile
+    container_name: blockchain-indexer
+    environment:
+      RPC_URL: http://geth:8545
+      DATABASE_URL: postgresql://indexer:indexer_pass@postgres:5432/blockchain_data
+      CONTRACT_INFO_PATH: /app/contract_info/contract_info.json
+      POLL_INTERVAL: 2
+      METRICS_PORT: 8000
+    ports:
+      - "8000:8000"  # Prometheus metrics
+    volumes:
+      - contract-info:/app/contract_info:ro
+    depends_on:
+      deployer:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      geth:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - blockchain-net
+
+  # ============================================
+  # Prometheus
+  # ============================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - geth
+      - indexer
+    networks:
+      - blockchain-net
+
+  # ============================================
+  # Grafana
+  # ============================================
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - blockchain-net
+
+  # ============================================
+  # Blockscout - Block Explorer
+  # ============================================
+  blockscout-db:
+    image: postgres:15-alpine
+    container_name: blockscout-db
+    environment:
+      POSTGRES_USER: blockscout
+      POSTGRES_PASSWORD: blockscout
+      POSTGRES_DB: blockscout
+    volumes:
+      - blockscout-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blockscout -d blockscout"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - blockchain-net
+
+  blockscout-redis:
+    image: redis:7-alpine
+    container_name: blockscout-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - blockscout-redis-data:/data
+    networks:
+      - blockchain-net
+
+  blockscout:
+    image: blockscout/blockscout:5.3.3
+    container_name: blockscout
+    command: sh -c "bin/blockscout eval \"Elixir.Explorer.ReleaseTasks.create_and_migrate()\" && bin/blockscout start"
+    environment:
+      DATABASE_URL: postgresql://blockscout:blockscout@blockscout-db:5432/blockscout
+      ETHEREUM_JSONRPC_VARIANT: geth
+      ETHEREUM_JSONRPC_HTTP_URL: http://geth:8545
+      ETHEREUM_JSONRPC_WS_URL: ws://geth:8546
+      ETHEREUM_JSONRPC_TRACE_URL: http://geth:8545
+      SECRET_KEY_BASE: "JkOWJla2dkZHc2OTkyelJvNDQ4emNiZjhtZHp5bXFyNW1idXk3b3dseWFnZHBjdW5iZmhuZW1tenJwZ3hsZQ=="
+      CHAIN_ID: "1337"
+      NETWORK: "Devnet"
+      SUBNETWORK: "Local Development"
+      COIN: "ETH"
+      COIN_NAME: "ETH"
+      LOGO: /images/ethereum_logo.svg
+      SUPPORTED_CHAINS: "[]"
+      APPS_MENU: "false"
+      EXTERNAL_APPS: "[]"
+      PORT: 4000
+      POOL_SIZE: 10
+      POOL_SIZE_API: 10
+      ECTO_USE_SSL: "false"
+      DISABLE_EXCHANGE_RATES: "true"
+      SHOW_PRICE_CHART: "false"
+      DISABLE_KNOWN_TOKENS: "true"
+      INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER: "true"
+      INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER: "false"
+      FETCH_REWARDS_WAY: "manual"
+      BLOCKSCOUT_HOST: localhost
+      BLOCKSCOUT_PROTOCOL: http
+      MIX_ENV: prod
+    ports:
+      - "4000:4000"
+    depends_on:
+      blockscout-db:
+        condition: service_healthy
+      blockscout-redis:
+        condition: service_started
+      geth:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - blockchain-net
+
+volumes:
+  geth-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+  contract-info:
+  blockscout-db-data:
+  blockscout-redis-data:
+
+networks:
+  blockchain-net:
+    driver: bridge

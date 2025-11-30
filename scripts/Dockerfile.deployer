@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies for solcx
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    web3==6.15.1 \
+    py-solc-x==2.0.2
+
+# Copy deployment script
+COPY deploy_contract.py .
+
+# Create output directory
+RUN mkdir -p /app/output
+
+CMD ["python", "deploy_contract.py"]
