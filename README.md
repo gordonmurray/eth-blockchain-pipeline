@@ -2,6 +2,27 @@
 
 A hands-on learning lab for blockchain infrastructure, data engineering, and operations. This project simulates a small purchase system on a local Ethereum devnet, demonstrating how to build and operate blockchain infrastructure similar to services like Infura, Dune Analytics, and Etherscan.
 
+## When to Use Blockchain (And When Not To)
+
+This project uses a purchase system as a familiar example, but **a real coffee shop should just use Postgres**. Blockchain adds cost and complexity with no benefit when one party controls all the data.
+
+**Use a traditional database when:**
+- You control all components and data
+- Participants trust you (or trust isn't an issue)
+- You need fast, cheap transactions
+- You want to fix mistakes by updating records
+
+**Blockchain adds value when:**
+- **Trustlessness** - Parties who don't trust each other need to agree on state (e.g., cross-company supply chain)
+- **Immutability** - Records cannot be altered, even by the system owner (e.g., audit logs, certificates)
+- **Censorship resistance** - No single party can block transactions (e.g., cross-border payments)
+- **Programmable value transfer** - Automated conditions on money movement (e.g., escrow, royalties, DeFi)
+- **Public verifiability** - Anyone can independently verify the data (e.g., public registries)
+
+Real-world examples where blockchain fits: cross-border payments without intermediaries, supply chain verification between competitors, NFT royalties enforced by code, DAO treasuries controlled by smart contracts rather than individuals.
+
+This project teaches the infrastructure patterns regardless of use case - the same skills apply whether you're indexing DeFi transactions or supply chain events.
+
 ## Overview
 
 This project teaches:
