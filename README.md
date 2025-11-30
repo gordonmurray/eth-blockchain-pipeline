@@ -126,6 +126,8 @@ Open http://localhost:4000 in your browser. You'll see:
 
 This gives you the same experience as using Etherscan on mainnet, but for your local devnet.
 
+![Blockscout Explorer](images/blockscout-explorer.png)
+
 ## Quick Start
 
 ### Prerequisites
@@ -265,6 +267,8 @@ The pre-configured dashboard shows:
 - Events indexed per minute
 - Indexer latency (p95)
 - Block progress timeline
+
+![Grafana Dashboard](images/grafana-dashboard.png)
 
 ### Prometheus Metrics
 
