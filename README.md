@@ -319,7 +319,6 @@ Geth exposes metrics at `http://localhost:6060/debug/metrics/prometheus` includi
 ```
 .
 ├── README.md
-├── claude.md                 # Project specification
 ├── docker-compose.yml        # All service definitions
 ├── contracts/
 │   └── PurchaseStore.sol     # Smart contract
@@ -434,7 +433,6 @@ After completing this project, you will understand:
 
 ## Next Steps
 
-- Add a block explorer (Blockscout) for visual transaction browsing
 - Implement WebSocket subscriptions for real-time event streaming
 - Add more complex analytics with dbt or similar tools
 - Deploy to a testnet (Sepolia, Holesky)
